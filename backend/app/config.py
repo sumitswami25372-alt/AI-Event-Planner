@@ -1,3 +1,4 @@
+import os
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,6 +16,15 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore"
     )
+
+    @property
+    def effective_database_url(self) -> str:
+        # In serverless environments like Vercel or AWS Lambda, the root filesystem is read-only.
+        # Fall back SQLite to /tmp directory.
+        if (os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")) and "sqlite" in self.DATABASE_URL:
+            if "./celebrai.db" in self.DATABASE_URL or self.DATABASE_URL == "sqlite:///celebrai.db":
+                return "sqlite:////tmp/celebrai.db"
+        return self.DATABASE_URL
 
     @property
     def cors_origins_list(self) -> List[str]:

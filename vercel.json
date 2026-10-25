@@ -35,7 +35,7 @@
   ],
   "env": {
     "GEMINI_MODEL": "gemini-2.5-flash",
-    "DATABASE_URL": "sqlite:///./celebrai.db",
+    "DATABASE_URL": "sqlite:////tmp/celebrai.db",
     "ENVIRONMENT": "production",
     "AI_TIMEOUT_SECONDS": "30",
     "CORS_ORIGINS": "*"
