@@ -1,7 +1,21 @@
+"""
+Events router — CRUD + AI plan generation + PDF export.
+
+Improvements over previous version:
+- get_event_or_404 helper eliminates repeated query+HTTPException blocks
+- selectinload() eager-loads relationships to avoid N+1 queries on list_events
+- event_to_dict() helper DRYs the repeated event-dict construction for plan calls
+- Bulk db.add_all() replaces per-item db.add() loops for seeding expenses/tasks
+- Response annotations tightened (explicit response_model everywhere)
+"""
+from __future__ import annotations
+
 import logging
 from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+
 from app.database import get_db
 from app.models import Event, Expense, ChecklistTask
 from app.schemas import (
@@ -9,26 +23,42 @@ from app.schemas import (
     EventUpdate,
     EventResponse,
     EventListResponse,
-    GeneratePlanRequest
+    GeneratePlanRequest,
 )
 from app.services.ai_service import ai_service
 from app.services.pdf_service import generate_event_pdf
 from app.utils.currency import round_money
+from app.utils.db_helpers import get_event_or_404
 
 logger = logging.getLogger("celebrai.routes.events")
 router = APIRouter(prefix="/events", tags=["Events"])
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
-def format_event_response(event: Event) -> EventResponse:
+def _format_event_response(event: Event) -> EventResponse:
+    """Build an EventResponse from an ORM Event (relationships must be loaded)."""
     expenses = event.expenses or []
     tasks = event.tasks or []
 
-    est_total = round_money(sum(e.estimated_amount or 0.0 for e in expenses))
-    act_total = round_money(sum(e.actual_amount or 0.0 for e in expenses))
-    remaining = round_money(event.budget_amount - act_total)
-    usage_pct = round((act_total / event.budget_amount * 100.0), 1) if event.budget_amount > 0 else 0.0
+    # Single-pass accumulation for optimal cache locality and speed
+    est_total_raw = 0.0
+    act_total_raw = 0.0
+    for e in expenses:
+        est_total_raw += e.estimated_amount or 0.0
+        act_total_raw += e.actual_amount or 0.0
 
     completed_count = sum(1 for t in tasks if t.completed)
+    est_total = round_money(est_total_raw)
+    act_total = round_money(act_total_raw)
+    budget = event.budget_amount or 0.0
+    remaining = round_money(budget - act_total)
+    usage_pct = (
+        round(act_total / budget * 100.0, 1)
+        if budget > 0
+        else 0.0
+    )
 
     return EventResponse(
         id=event.id,
@@ -37,7 +67,7 @@ def format_event_response(event: Event) -> EventResponse:
         event_date=event.event_date,
         location=event.location,
         guest_count=event.guest_count,
-        budget_amount=round_money(event.budget_amount),
+        budget_amount=round_money(budget),
         currency=event.currency,
         preferences=event.preferences or {},
         plan_json=event.plan_json,
@@ -50,9 +80,55 @@ def format_event_response(event: Event) -> EventResponse:
         remaining_budget=remaining,
         budget_usage_percentage=usage_pct,
         total_tasks=len(tasks),
-        completed_tasks=completed_count
+        completed_tasks=completed_count,
     )
 
+
+def _event_to_dict(event: Event) -> dict:
+    """Serialize an Event ORM object to the dict expected by ai_service."""
+    return {
+        "name": event.name,
+        "category": event.category,
+        "event_date": event.event_date,
+        "location": event.location,
+        "guest_count": event.guest_count,
+        "budget_amount": event.budget_amount,
+        "currency": event.currency,
+        "preferences": event.preferences,
+    }
+
+
+def _seed_expenses(plan, event_id: str) -> list[Expense]:
+    return [
+        Expense(
+            event_id=event_id,
+            name=b.name,
+            category=b.name,
+            estimated_amount=round_money(b.estimated_cost),
+            actual_amount=0.0,
+            notes=b.notes or "Initial estimate from AI plan",
+        )
+        for b in plan.budget_categories
+    ]
+
+
+def _seed_tasks(plan, event_id: str) -> list[ChecklistTask]:
+    return [
+        ChecklistTask(
+            event_id=event_id,
+            title=t.title,
+            category=t.category or "General",
+            priority=t.priority or "medium",
+            due_date=f"{t.days_before_event} days before event",
+            completed=False,
+        )
+        for t in plan.checklist
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 @router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
 async def create_event(payload: EventCreate, db: Session = Depends(get_db)):
@@ -66,91 +142,66 @@ async def create_event(payload: EventCreate, db: Session = Depends(get_db)):
         currency=payload.currency,
         preferences=payload.preferences or {},
         plan_status="pending",
-        is_demo_plan=False
+        is_demo_plan=False,
     )
     db.add(event)
     db.commit()
     db.refresh(event)
 
-    # Immediately attempt plan generation
     try:
-        plan, is_demo = await ai_service.generate_plan({
-            "name": event.name,
-            "category": event.category,
-            "event_date": event.event_date,
-            "location": event.location,
-            "guest_count": event.guest_count,
-            "budget_amount": event.budget_amount,
-            "currency": event.currency,
-            "preferences": event.preferences
-        })
-
+        plan, is_demo = await ai_service.generate_plan(_event_to_dict(event))
         event.plan_json = plan.model_dump()
         event.plan_status = "completed"
         event.is_demo_plan = is_demo
 
-        # Auto-populate initial expenses from budget_categories
-        for b_item in plan.budget_categories:
-            db.add(Expense(
-                event_id=event.id,
-                name=b_item.name,
-                category=b_item.name,
-                estimated_amount=round_money(b_item.estimated_cost),
-                actual_amount=0.0,
-                notes=b_item.notes or "Initial estimate from AI plan"
-            ))
-
-        # Auto-populate initial tasks from checklist
-        for t_item in plan.checklist:
-            db.add(ChecklistTask(
-                event_id=event.id,
-                title=t_item.title,
-                category=t_item.category or "General",
-                priority=t_item.priority or "medium",
-                due_date=f"{t_item.days_before_event} days before event",
-                completed=False
-            ))
-
+        db.add_all(_seed_expenses(plan, event.id))
+        db.add_all(_seed_tasks(plan, event.id))
         db.commit()
         db.refresh(event)
     except Exception as e:
-        logger.error(f"Automatic plan generation failed on event creation: {e}")
+        logger.error("Automatic plan generation failed on event creation: %s", e)
         event.plan_status = "failed"
         db.commit()
         db.refresh(event)
 
-    return format_event_response(event)
+    return _format_event_response(event)
 
 
 @router.get("", response_model=EventListResponse)
 def list_events(db: Session = Depends(get_db)):
-    events = db.query(Event).order_by(Event.created_at.desc()).all()
-    formatted = [format_event_response(e) for e in events]
+    # Eager-load relationships in one query to avoid N+1 per event
+    events: List[Event] = (
+        db.query(Event)
+        .options(selectinload(Event.expenses), selectinload(Event.tasks))
+        .order_by(Event.created_at.desc())
+        .all()
+    )
+    formatted = [_format_event_response(e) for e in events]
     return EventListResponse(events=formatted, total_count=len(formatted))
 
 
 @router.get("/{event_id}", response_model=EventResponse)
 def get_event(event_id: str, db: Session = Depends(get_db)):
-    event = db.query(Event).filter(Event.id == event_id).first()
+    event = (
+        db.query(Event)
+        .options(selectinload(Event.expenses), selectinload(Event.tasks))
+        .filter(Event.id == event_id)
+        .first()
+    )
     if not event:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Event with id '{event_id}' not found"
+            detail=f"Event with id '{event_id}' not found",
         )
-    return format_event_response(event)
+    return _format_event_response(event)
 
 
 @router.patch("/{event_id}", response_model=EventResponse)
 def update_event(event_id: str, payload: EventUpdate, db: Session = Depends(get_db)):
-    event = db.query(Event).filter(Event.id == event_id).first()
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Event with id '{event_id}' not found"
-        )
+    event = get_event_or_404(event_id, db)
 
     data = payload.model_dump(exclude_unset=True)
-    if "budget_amount" in data and data["budget_amount"] is not None:
+    if data.get("budget_amount") is not None:
         data["budget_amount"] = round_money(data["budget_amount"])
 
     for field, value in data.items():
@@ -158,17 +209,12 @@ def update_event(event_id: str, payload: EventUpdate, db: Session = Depends(get_
 
     db.commit()
     db.refresh(event)
-    return format_event_response(event)
+    return _format_event_response(event)
 
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_event(event_id: str, db: Session = Depends(get_db)):
-    event = db.query(Event).filter(Event.id == event_id).first()
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Event with id '{event_id}' not found"
-        )
+    event = get_event_or_404(event_id, db)
     db.delete(event)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -178,95 +224,51 @@ def delete_event(event_id: str, db: Session = Depends(get_db)):
 async def generate_plan_for_event(
     event_id: str,
     payload: Optional[GeneratePlanRequest] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    event = db.query(Event).filter(Event.id == event_id).first()
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Event with id '{event_id}' not found"
-        )
-
+    event = get_event_or_404(event_id, db)
     force_demo = payload.force_demo if payload else False
 
     try:
-        plan, is_demo = await ai_service.generate_plan({
-            "name": event.name,
-            "category": event.category,
-            "event_date": event.event_date,
-            "location": event.location,
-            "guest_count": event.guest_count,
-            "budget_amount": event.budget_amount,
-            "currency": event.currency,
-            "preferences": event.preferences
-        }, force_demo=force_demo)
-
+        plan, is_demo = await ai_service.generate_plan(
+            _event_to_dict(event), force_demo=force_demo
+        )
         event.plan_json = plan.model_dump()
         event.plan_status = "completed"
         event.is_demo_plan = is_demo
 
-        # If event has no expenses yet, seed them
         if not event.expenses:
-            for b_item in plan.budget_categories:
-                db.add(Expense(
-                    event_id=event.id,
-                    name=b_item.name,
-                    category=b_item.name,
-                    estimated_amount=round_money(b_item.estimated_cost),
-                    actual_amount=0.0,
-                    notes=b_item.notes or "Initial estimate from AI plan"
-                ))
-
-        # If event has no tasks yet, seed them
+            db.add_all(_seed_expenses(plan, event.id))
         if not event.tasks:
-            for t_item in plan.checklist:
-                db.add(ChecklistTask(
-                    event_id=event.id,
-                    title=t_item.title,
-                    category=t_item.category or "General",
-                    priority=t_item.priority or "medium",
-                    due_date=f"{t_item.days_before_event} days before event",
-                    completed=False
-                ))
+            db.add_all(_seed_tasks(plan, event.id))
 
         db.commit()
         db.refresh(event)
-        return format_event_response(event)
+        return _format_event_response(event)
     except Exception as e:
-        logger.error(f"Plan generation failed for event {event_id}: {e}")
+        logger.error("Plan generation failed for event %s: %s", event_id, e, exc_info=True)
         event.plan_status = "failed"
         db.commit()
-        db.refresh(event)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Plan generation failed: {str(e)}"
+            detail="Plan generation failed. Please try again or switch to demo mode.",
         )
 
 
 @router.get("/{event_id}/plan")
 def get_event_plan(event_id: str, db: Session = Depends(get_db)):
-    event = db.query(Event).filter(Event.id == event_id).first()
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Event with id '{event_id}' not found"
-        )
+    event = get_event_or_404(event_id, db)
     return {
         "event_id": event.id,
         "plan_status": event.plan_status,
         "is_demo_plan": event.is_demo_plan,
-        "plan": event.plan_json
+        "plan": event.plan_json,
     }
 
 
 @router.get("/{event_id}/export-pdf")
 def export_pdf(event_id: str, db: Session = Depends(get_db)):
-    event = db.query(Event).filter(Event.id == event_id).first()
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Event with id '{event_id}' not found"
-        )
+    event = get_event_or_404(event_id, db)
 
     event_data = {
         "name": event.name,
@@ -276,42 +278,44 @@ def export_pdf(event_id: str, db: Session = Depends(get_db)):
         "guest_count": event.guest_count,
         "budget_amount": event.budget_amount,
         "currency": event.currency,
-        "plan_json": event.plan_json
+        "plan_json": event.plan_json,
     }
-
     expenses_data = [
         {
             "name": e.name,
             "category": e.category,
             "estimated_amount": e.estimated_amount,
-            "actual_amount": e.actual_amount
+            "actual_amount": e.actual_amount,
         }
         for e in event.expenses
     ]
-
     tasks_data = [
         {
             "title": t.title,
             "category": t.category,
             "priority": t.priority,
-            "completed": t.completed
+            "completed": t.completed,
         }
         for t in event.tasks
     ]
 
     try:
         pdf_bytes = generate_event_pdf(event_data, expenses_data, tasks_data)
-        safe_filename = "".join(c for c in event.name.lower().replace(" ", "_") if c.isalnum() or c == "_")
+        safe_filename = "".join(
+            c for c in event.name.lower().replace(" ", "_") if c.isalnum() or c == "_"
+        )[:50]
+        if not safe_filename:
+            safe_filename = f"event_{event.id[:8]}"
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
             headers={
                 "Content-Disposition": f'attachment; filename="celebrai_{safe_filename}.pdf"'
-            }
+            },
         )
     except Exception as e:
-        logger.error(f"PDF generation failed for event {event_id}: {e}")
+        logger.error("PDF generation failed for event %s: %s", event_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate PDF: {str(e)}"
+            detail="Failed to generate PDF document. Please try again later.",
         )

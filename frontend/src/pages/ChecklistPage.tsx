@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   CheckSquare,
@@ -166,22 +166,31 @@ export const ChecklistPage: React.FC = () => {
     return <ErrorAlert message={error || 'Checklist unavailable'} onRetry={fetchTasks} />;
   }
 
-  // Filter tasks
-  const categories = ['all', ...Array.from(new Set(tasks.map((t) => t.category || 'General')))];
-  const filteredTasks = tasks.filter((t) => {
-    const matchCat = categoryFilter === 'all' || (t.category || 'General') === categoryFilter;
-    const matchStatus =
-      statusFilter === 'all'
-        ? true
-        : statusFilter === 'completed'
-        ? t.completed
-        : !t.completed;
-    return matchCat && matchStatus;
-  });
+  // Memoized categories and filtered tasks
+  const categories = useMemo(
+    () => ['all', ...Array.from(new Set(tasks.map((t) => t.category || 'General')))],
+    [tasks]
+  );
 
-  const totalCount = tasks.length;
-  const completedCount = tasks.filter((t) => t.completed).length;
-  const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      const matchCat = categoryFilter === 'all' || (t.category || 'General') === categoryFilter;
+      const matchStatus =
+        statusFilter === 'all'
+          ? true
+          : statusFilter === 'completed'
+          ? t.completed
+          : !t.completed;
+      return matchCat && matchStatus;
+    });
+  }, [tasks, categoryFilter, statusFilter]);
+
+  const { totalCount, completedCount, progressPct } = useMemo(() => {
+    const total = tasks.length;
+    const completed = tasks.filter((t) => t.completed).length;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { totalCount: total, completedCount: completed, progressPct: pct };
+  }, [tasks]);
 
   return (
     <div className="flex flex-col gap-8 pb-16">

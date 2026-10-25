@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   DollarSign,
@@ -173,23 +173,39 @@ export const BudgetPage: React.FC = () => {
     return <ErrorAlert message={error || 'Budget unavailable'} onRetry={fetchBudget} />;
   }
 
-  // Filtered expenses
-  const categoriesList = ['all', ...Array.from(new Set(expenses.map((e) => e.category)))];
-  const filteredExpenses = selectedCategory === 'all'
-    ? expenses
-    : expenses.filter((e) => e.category === selectedCategory);
+  // Memoized categories and filtered expenses
+  const categoriesList = useMemo(
+    () => ['all', ...Array.from(new Set(expenses.map((e) => e.category)))],
+    [expenses]
+  );
 
-  // Chart data
-  const pieData = Object.entries(summary.categories || {}).map(([name, vals]) => ({
-    name,
-    value: vals.actual > 0 ? vals.actual : vals.estimated,
-  }));
+  const filteredExpenses = useMemo(
+    () =>
+      selectedCategory === 'all'
+        ? expenses
+        : expenses.filter((e) => e.category === selectedCategory),
+    [expenses, selectedCategory]
+  );
 
-  const barData = Object.entries(summary.categories || {}).map(([name, vals]) => ({
-    category: name,
-    Estimated: vals.estimated,
-    Actual: vals.actual,
-  }));
+  // Memoized chart projections
+  const pieData = useMemo(
+    () =>
+      Object.entries(summary.categories || {}).map(([name, vals]) => ({
+        name,
+        value: vals.actual > 0 ? vals.actual : vals.estimated,
+      })),
+    [summary.categories]
+  );
+
+  const barData = useMemo(
+    () =>
+      Object.entries(summary.categories || {}).map(([name, vals]) => ({
+        category: name,
+        Estimated: vals.estimated,
+        Actual: vals.actual,
+      })),
+    [summary.categories]
+  );
 
   return (
     <div className="flex flex-col gap-8 pb-16">

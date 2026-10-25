@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Calendar,
@@ -74,27 +74,49 @@ export const DashboardPage: React.FC = () => {
     return <ErrorAlert message={error} onRetry={fetchEvents} title="Unable to load dashboard" />;
   }
 
-  // Authoritative calculations from real database records
-  const totalEvents = events.length;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  // Authoritative memoized calculations from real database records
+  const {
+    totalEvents,
+    upcomingEvents,
+    totalTasks,
+    completedTasks,
+    taskCompletionRate,
+    totalCommittedBudget,
+    totalActualSpend,
+    budgetUtilization,
+    primaryCurrency,
+  } = useMemo(() => {
+    const totalEvents = events.length;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
 
-  const upcomingEvents = events.filter((e) => {
-    if (!e.event_date) return false;
-    const d = new Date(e.event_date);
-    return !isNaN(d.getTime()) && d >= now;
-  });
+    const upcomingEvents = events.filter((e) => {
+      if (!e.event_date) return false;
+      const d = new Date(e.event_date);
+      return !isNaN(d.getTime()) && d >= now;
+    });
 
-  const totalTasks = events.reduce((acc, e) => acc + (e.total_tasks || 0), 0);
-  const completedTasks = events.reduce((acc, e) => acc + (e.completed_tasks || 0), 0);
-  const taskCompletionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const totalTasks = events.reduce((acc, e) => acc + (e.total_tasks || 0), 0);
+    const completedTasks = events.reduce((acc, e) => acc + (e.completed_tasks || 0), 0);
+    const taskCompletionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  const totalCommittedBudget = events.reduce((acc, e) => acc + (e.budget_amount || 0), 0);
-  const totalActualSpend = events.reduce((acc, e) => acc + (e.actual_total || 0), 0);
-  const budgetUtilization = totalCommittedBudget > 0 ? Math.round((totalActualSpend / totalCommittedBudget) * 100) : 0;
+    const totalCommittedBudget = events.reduce((acc, e) => acc + (e.budget_amount || 0), 0);
+    const totalActualSpend = events.reduce((acc, e) => acc + (e.actual_total || 0), 0);
+    const budgetUtilization = totalCommittedBudget > 0 ? Math.round((totalActualSpend / totalCommittedBudget) * 100) : 0;
+    const primaryCurrency = events[0]?.currency || 'INR';
 
-  // Primary currency
-  const primaryCurrency = events[0]?.currency || 'INR';
+    return {
+      totalEvents,
+      upcomingEvents,
+      totalTasks,
+      completedTasks,
+      taskCompletionRate,
+      totalCommittedBudget,
+      totalActualSpend,
+      budgetUtilization,
+      primaryCurrency,
+    };
+  }, [events]);
 
   return (
     <div className="flex flex-col gap-8 pb-12">
