@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   CheckSquare,
@@ -44,7 +44,7 @@ export const ChecklistPage: React.FC = () => {
   const [taskPriority, setTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [taskDueDate, setTaskDueDate] = useState('');
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     if (!eventId) return;
     try {
       setIsLoading(true);
@@ -61,11 +61,11 @@ export const ChecklistPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [eventId]);
 
   useEffect(() => {
     fetchTasks();
-  }, [eventId]);
+  }, [fetchTasks]);
 
   const handleToggleComplete = async (task: ChecklistTaskItem) => {
     const nextCompleted = !task.completed;

@@ -13,7 +13,7 @@ export interface BudgetCategoryItem {
 export interface ChecklistItem {
   title: string;
   category: string;
-  priority: string;
+  priority: 'low' | 'medium' | 'high';
   days_before_event: number;
 }
 
@@ -129,7 +129,7 @@ export interface ChecklistTaskItem {
 export interface TaskCreatePayload {
   title: string;
   category?: string;
-  priority?: string;
+  priority?: 'low' | 'medium' | 'high';
   due_date?: string;
   completed?: boolean;
 }
@@ -137,7 +137,7 @@ export interface TaskCreatePayload {
 export interface TaskUpdatePayload {
   title?: string;
   category?: string;
-  priority?: string;
+  priority?: 'low' | 'medium' | 'high';
   due_date?: string;
   completed?: boolean;
 }

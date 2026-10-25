@@ -13,22 +13,23 @@ Production Quality, Security & Efficiency features:
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from app.config import settings
+from app.config import APP_VERSION, settings
 from app.database import init_db
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.middleware.security import ContentSizeLimitMiddleware, SecurityHeadersMiddleware
+from app.middleware.security import (
+    ContentSizeLimitMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.middleware.timing import ProcessTimeMiddleware
-from app.routes import general, events, expenses, tasks
-
-APP_VERSION = "1.0.0"
+from app.routes import events, expenses, general, tasks
 
 logging.basicConfig(
     level=logging.INFO,

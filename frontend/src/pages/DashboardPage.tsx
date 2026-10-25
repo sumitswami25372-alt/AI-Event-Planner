@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Calendar,
@@ -32,7 +32,7 @@ export const DashboardPage: React.FC = () => {
 
   const { showToast } = useAppToast();
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -44,11 +44,11 @@ export const DashboardPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchEvents();
-  }, []);
+  }, [fetchEvents]);
 
   const handleDelete = async () => {
     if (!eventToDelete) return;

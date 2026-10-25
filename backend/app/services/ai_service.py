@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from app.config import settings
 from app.schemas import AIPlanSchema
@@ -40,8 +40,7 @@ def _strip_markdown_fences(text: str) -> str:
         text = text[7:]
     elif text.startswith("```"):
         text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
+    text = text.removesuffix("```")
     return text.strip()
 
 
@@ -49,7 +48,7 @@ class AIService:
     """Thin wrapper around the Gemini generative AI API."""
 
     def __init__(self) -> None:
-        self._client: "genai.Client | None" = None  # lazy — created on first live call
+        self._client: genai.Client | None = None  # lazy — created on first live call
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -59,7 +58,7 @@ class AIService:
         return _GENAI_AVAILABLE and settings.is_gemini_configured
 
     @property
-    def _gemini_client(self) -> "genai.Client":
+    def _gemini_client(self) -> genai.Client:
         """Return (or create) the shared Gemini client instance."""
         if self._client is None:
             self._client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -70,8 +69,8 @@ class AIService:
     # ------------------------------------------------------------------
 
     async def generate_plan(
-        self, event_data: Dict[str, Any], force_demo: bool = False
-    ) -> Tuple[AIPlanSchema, bool]:
+        self, event_data: dict[str, Any], force_demo: bool = False
+    ) -> tuple[AIPlanSchema, bool]:
         """
         Generate an event plan.
 
@@ -100,7 +99,7 @@ class AIService:
     # Private Gemini call
     # ------------------------------------------------------------------
 
-    async def _call_gemini(self, event_data: Dict[str, Any]) -> AIPlanSchema:
+    async def _call_gemini(self, event_data: dict[str, Any]) -> AIPlanSchema:
         """Execute the blocking Gemini SDK call in a thread pool."""
         name = event_data.get("name", "Celebration")
         category = event_data.get("category", "Party")

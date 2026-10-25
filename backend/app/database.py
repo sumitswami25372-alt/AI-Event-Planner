@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
+
 from app.config import settings
 
 db_url = settings.effective_database_url

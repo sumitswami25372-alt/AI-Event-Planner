@@ -9,22 +9,21 @@ Improvements:
 from __future__ import annotations
 
 import logging
-from typing import List
 
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import ChecklistTask
-from app.schemas import TaskCreate, TaskUpdate, TaskResponse
+from app.schemas import TaskCreate, TaskResponse, TaskUpdate
 from app.utils.db_helpers import get_event_or_404, get_task_or_404
 
 logger = logging.getLogger("celebrai.routes.tasks")
 router = APIRouter(tags=["Checklist Tasks"])
 
 
-@router.get("/events/{event_id}/tasks", response_model=List[TaskResponse])
-def get_event_tasks(event_id: str, db: Session = Depends(get_db)) -> List[TaskResponse]:
+@router.get("/events/{event_id}/tasks", response_model=list[TaskResponse])
+def get_event_tasks(event_id: str, db: Session = Depends(get_db)) -> list[TaskResponse]:
     get_event_or_404(event_id, db)  # validates existence
     tasks = (
         db.query(ChecklistTask)

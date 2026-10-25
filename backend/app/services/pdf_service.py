@@ -1,17 +1,27 @@
+"""
+PDF report generation service for CelebrAI.
+
+Generates styled, multi-section PDF event plan documents using ReportLab.
+All user-supplied text is XML-escaped before insertion to prevent injection
+through the ReportLab XML/paragraph engine.
+"""
+from __future__ import annotations
+
 import io
-from typing import Dict, Any, List
-from reportlab.lib.pagesizes import letter
+from typing import Any
+from xml.sax import saxutils
+
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import (
-    SimpleDocTemplate,
+    HRFlowable,
     Paragraph,
+    SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
-    HRFlowable
 )
-import xml.sax.saxutils as saxutils
 
 
 def sanitize_text(text: Any) -> str:
@@ -22,7 +32,7 @@ def sanitize_text(text: Any) -> str:
     return saxutils.escape(s)
 
 
-def generate_event_pdf(event_data: Dict[str, Any], expenses: List[Dict[str, Any]], tasks: List[Dict[str, Any]]) -> bytes:
+def generate_event_pdf(event_data: dict[str, Any], expenses: list[dict[str, Any]], tasks: list[dict[str, Any]]) -> bytes:
     """
     Generates a production-quality, styled PDF report for a saved event.
     """

@@ -1,21 +1,23 @@
 """
-Shared database helper utilities.
+Shared database helper utilities for CelebrAI routes.
 
-Centralises the repeated "fetch-or-404" pattern so that every route avoids
-duplicating the same query + HTTPException block.
+Centralises the repeated "fetch-or-404" pattern so every route avoids
+duplicating the same query + HTTPException block.  Using a single function
+per resource type also ensures error messages and HTTP status codes are
+consistent across the entire API surface.
 """
 from __future__ import annotations
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import Event, Expense, ChecklistTask
+from app.models import ChecklistTask, Event, Expense
 
 
 def get_event_or_404(event_id: str, db: Session) -> Event:
-    """Return the Event with *event_id* or raise HTTP 404."""
-    event: Event | None = db.query(Event).filter(Event.id == event_id).first()
-    if not event:
+    """Return the :class:`Event` with *event_id*, or raise HTTP 404."""
+    event: Event | None = db.get(Event, event_id)
+    if event is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Event with id '{event_id}' not found",
@@ -24,9 +26,9 @@ def get_event_or_404(event_id: str, db: Session) -> Event:
 
 
 def get_expense_or_404(expense_id: str, db: Session) -> Expense:
-    """Return the Expense with *expense_id* or raise HTTP 404."""
-    expense: Expense | None = db.query(Expense).filter(Expense.id == expense_id).first()
-    if not expense:
+    """Return the :class:`Expense` with *expense_id*, or raise HTTP 404."""
+    expense: Expense | None = db.get(Expense, expense_id)
+    if expense is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Expense with id '{expense_id}' not found",
@@ -35,9 +37,9 @@ def get_expense_or_404(expense_id: str, db: Session) -> Expense:
 
 
 def get_task_or_404(task_id: str, db: Session) -> ChecklistTask:
-    """Return the ChecklistTask with *task_id* or raise HTTP 404."""
-    task: ChecklistTask | None = db.query(ChecklistTask).filter(ChecklistTask.id == task_id).first()
-    if not task:
+    """Return the :class:`ChecklistTask` with *task_id*, or raise HTTP 404."""
+    task: ChecklistTask | None = db.get(ChecklistTask, task_id)
+    if task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Task with id '{task_id}' not found",

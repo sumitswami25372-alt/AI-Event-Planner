@@ -9,7 +9,7 @@ Improvements:
 """
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -19,13 +19,13 @@ _CENT = Decimal("0.01")
 _TENTH = Decimal("0.1")
 
 
-def round_money(val: float | int | Decimal) -> float:
+def round_money(val: float | Decimal) -> float:
     """Round a monetary value to 2 decimal places (round-half-up)."""
     return float(Decimal(str(val)).quantize(_CENT, rounding=ROUND_HALF_UP))
 
 
 def calculate_budget_summary(
-    budget_amount: float, expenses: list["Expense"]
+    budget_amount: float, expenses: list[Expense]
 ) -> dict[str, Any]:
     """
     Compute decimal-safe budget calculations from authoritative DB records.
@@ -33,8 +33,8 @@ def calculate_budget_summary(
     Returns a dict compatible with BudgetSummary schema.
     """
     d_budget = Decimal(str(budget_amount))
-    d_est_total = Decimal("0")
-    d_act_total = Decimal("0")
+    d_est_total = Decimal(0)
+    d_act_total = Decimal(0)
 
     # Use Decimal accumulators per category to avoid repeated str-conversion
     cat_est: dict[str, Decimal] = {}
@@ -47,12 +47,12 @@ def calculate_budget_summary(
         d_act_total += e_act
 
         cat = exp.category or "Other"
-        cat_est[cat] = cat_est.get(cat, Decimal("0")) + e_est
-        cat_act[cat] = cat_act.get(cat, Decimal("0")) + e_act
+        cat_est[cat] = cat_est.get(cat, Decimal(0)) + e_est
+        cat_act[cat] = cat_act.get(cat, Decimal(0)) + e_act
 
     remaining = d_budget - d_act_total
     usage_pct = (
-        (d_act_total / d_budget * Decimal("100")).quantize(_TENTH, rounding=ROUND_HALF_UP)
+        (d_act_total / d_budget * Decimal(100)).quantize(_TENTH, rounding=ROUND_HALF_UP)
         if d_budget > 0
         else Decimal("0.0")
     )

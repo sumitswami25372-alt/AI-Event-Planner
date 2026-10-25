@@ -4,7 +4,7 @@ import { Navbar } from '../components/Navbar';
 import { Sidebar } from '../components/Sidebar';
 import { Footer } from '../components/Footer';
 import { ToastContainer } from '../components/Toast';
-import { useToast, ToastMessage } from '../hooks/useToast';
+import { useToast } from '../hooks/useToast';
 
 interface ToastContextType {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;

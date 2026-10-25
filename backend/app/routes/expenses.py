@@ -11,17 +11,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Event, Expense
+from app.models import Expense
 from app.schemas import (
     ExpenseCreate,
-    ExpenseUpdate,
     ExpenseResponse,
+    ExpenseUpdate,
 )
-from app.utils.currency import round_money, calculate_budget_summary
+from app.utils.currency import calculate_budget_summary, round_money
 from app.utils.db_helpers import get_event_or_404, get_expense_or_404
 
 logger = logging.getLogger("celebrai.routes.expenses")

@@ -1,8 +1,9 @@
-from typing import Dict, Any, List
-from app.schemas import AIPlanSchema, TimelineItem, BudgetCategoryItem, ChecklistItem
+from typing import Any
+
+from app.schemas import AIPlanSchema, BudgetCategoryItem, ChecklistItem, TimelineItem
 
 
-def generate_demo_plan(event_data: Dict[str, Any]) -> AIPlanSchema:
+def generate_demo_plan(event_data: dict[str, Any]) -> AIPlanSchema:
     """
     Deterministic demo planner that generates a realistic, structurally valid
     plan tailored to the user's actual event inputs without calling external APIs.
@@ -199,7 +200,7 @@ def generate_demo_plan(event_data: Dict[str, Any]) -> AIPlanSchema:
 
     # Adjust budget allocations
     ratios = cfg["ratios"]
-    budget_items: List[BudgetCategoryItem] = []
+    budget_items: list[BudgetCategoryItem] = []
     for cat_name, ratio in ratios.items():
         est = round(budget * ratio, 2)
         budget_items.append(
@@ -211,7 +212,7 @@ def generate_demo_plan(event_data: Dict[str, Any]) -> AIPlanSchema:
         )
 
     # Standard timeline
-    timeline: List[TimelineItem] = [
+    timeline: list[TimelineItem] = [
         TimelineItem(time="02:00 PM", activity="Production, floral load-in, and sound check at venue", duration_minutes=90),
         TimelineItem(time="04:00 PM", activity="Final walkthrough, staff briefing, and photo-booth readiness", duration_minutes=45),
         TimelineItem(time="05:30 PM", activity="Doors open: Guest welcome, signature refreshment & background music", duration_minutes=60),
@@ -223,7 +224,7 @@ def generate_demo_plan(event_data: Dict[str, Any]) -> AIPlanSchema:
     ]
 
     # Standard checklist
-    checklist: List[ChecklistItem] = [
+    checklist: list[ChecklistItem] = [
         ChecklistItem(title=f"Finalize contract & deposit for venue in {location}", category="Venue", priority="high", days_before_event=45),
         ChecklistItem(title=f"Confirm catering menu respecting dietary ({dietary})", category="Catering", priority="high", days_before_event=30),
         ChecklistItem(title="Lock in DJ, sound line-array, and lighting equipment contract", category="Entertainment", priority="high", days_before_event=25),
@@ -234,7 +235,7 @@ def generate_demo_plan(event_data: Dict[str, Any]) -> AIPlanSchema:
         ChecklistItem(title="Pack ceremonial items, emergency kit (tape, pins, medicines) and guest favors", category="Operations", priority="low", days_before_event=1)
     ]
 
-    recommendations: List[str] = [
+    recommendations: list[str] = [
         f"Keep a 3-5% emergency buffer ({round(budget * 0.04, 2)} {currency}) for unexpected overtime or guest additions.",
         "Establish a firm dietary count cutoff 5 days prior to prevent excess kitchen wastage.",
         "Ensure venue power lines can support simultaneous audio amplifiers, catering warmers, and lighting setups.",

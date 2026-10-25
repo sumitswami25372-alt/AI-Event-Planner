@@ -11,18 +11,17 @@ Improvements over previous version:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Event, Expense, ChecklistTask
+from app.models import ChecklistTask, Event, Expense
 from app.schemas import (
     EventCreate,
-    EventUpdate,
-    EventResponse,
     EventListResponse,
+    EventResponse,
+    EventUpdate,
     GeneratePlanRequest,
 )
 from app.services.ai_service import ai_service
@@ -131,7 +130,7 @@ def _seed_tasks(plan, event_id: str) -> list[ChecklistTask]:
 # ---------------------------------------------------------------------------
 
 @router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
-async def create_event(payload: EventCreate, db: Session = Depends(get_db)):
+async def create_event(payload: EventCreate, db: Session = Depends(get_db)) -> EventResponse:
     event = Event(
         name=payload.name,
         category=payload.category,
@@ -168,9 +167,9 @@ async def create_event(payload: EventCreate, db: Session = Depends(get_db)):
 
 
 @router.get("", response_model=EventListResponse)
-def list_events(db: Session = Depends(get_db)):
+def list_events(db: Session = Depends(get_db)) -> EventListResponse:
     # Eager-load relationships in one query to avoid N+1 per event
-    events: List[Event] = (
+    events: list[Event] = (
         db.query(Event)
         .options(selectinload(Event.expenses), selectinload(Event.tasks))
         .order_by(Event.created_at.desc())
@@ -181,14 +180,14 @@ def list_events(db: Session = Depends(get_db)):
 
 
 @router.get("/{event_id}", response_model=EventResponse)
-def get_event(event_id: str, db: Session = Depends(get_db)):
-    event = (
+def get_event(event_id: str, db: Session = Depends(get_db)) -> EventResponse:
+    event: Event | None = (
         db.query(Event)
         .options(selectinload(Event.expenses), selectinload(Event.tasks))
         .filter(Event.id == event_id)
         .first()
     )
-    if not event:
+    if event is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Event with id '{event_id}' not found",
@@ -197,7 +196,7 @@ def get_event(event_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/{event_id}", response_model=EventResponse)
-def update_event(event_id: str, payload: EventUpdate, db: Session = Depends(get_db)):
+def update_event(event_id: str, payload: EventUpdate, db: Session = Depends(get_db)) -> EventResponse:
     event = get_event_or_404(event_id, db)
 
     data = payload.model_dump(exclude_unset=True)
@@ -213,7 +212,7 @@ def update_event(event_id: str, payload: EventUpdate, db: Session = Depends(get_
 
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_event(event_id: str, db: Session = Depends(get_db)):
+def delete_event(event_id: str, db: Session = Depends(get_db)) -> Response:
     event = get_event_or_404(event_id, db)
     db.delete(event)
     db.commit()
@@ -223,9 +222,9 @@ def delete_event(event_id: str, db: Session = Depends(get_db)):
 @router.post("/{event_id}/generate-plan", response_model=EventResponse)
 async def generate_plan_for_event(
     event_id: str,
-    payload: Optional[GeneratePlanRequest] = None,
+    payload: GeneratePlanRequest | None = None,
     db: Session = Depends(get_db),
-):
+) -> EventResponse:
     event = get_event_or_404(event_id, db)
     force_demo = payload.force_demo if payload else False
 
@@ -256,7 +255,7 @@ async def generate_plan_for_event(
 
 
 @router.get("/{event_id}/plan")
-def get_event_plan(event_id: str, db: Session = Depends(get_db)):
+def get_event_plan(event_id: str, db: Session = Depends(get_db)) -> dict:
     event = get_event_or_404(event_id, db)
     return {
         "event_id": event.id,
@@ -267,7 +266,7 @@ def get_event_plan(event_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{event_id}/export-pdf")
-def export_pdf(event_id: str, db: Session = Depends(get_db)):
+def export_pdf(event_id: str, db: Session = Depends(get_db)) -> Response:
     event = get_event_or_404(event_id, db)
 
     event_data = {

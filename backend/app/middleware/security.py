@@ -10,60 +10,81 @@ from __future__ import annotations
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.status import HTTP_413_CONTENT_TOO_LARGE
 
 # Maximum allowed payload size in bytes (2 MB)
 DEFAULT_MAX_BODY_SIZE = 2 * 1024 * 1024
 
+# OWASP-recommended headers — pre-built as a tuple for zero allocation on
+# each request (immutable at import time).
+_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("X-XSS-Protection", "1; mode=block"),
+    ("Referrer-Policy", "strict-origin-when-cross-origin"),
+    (
+        "Permissions-Policy",
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()",
+    ),
+    (
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "img-src 'self' data: blob:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' data: https://fonts.gstatic.com; "
+        "script-src 'self'; "
+        "frame-ancestors 'none';",
+    ),
+)
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
-    Appends standard OWASP-recommended HTTP security headers to all responses.
+    Appends OWASP-recommended HTTP security headers to every response.
+
+    Headers are defined once at module load time as a module-level constant
+    to avoid repeated string allocations on each request.
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
         response: Response = await call_next(request)
-
-        # Standard defense-in-depth headers
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = (
-            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
-        )
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "img-src 'self' data: blob:; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' data: https://fonts.gstatic.com; "
-            "script-src 'self'; "
-            "frame-ancestors 'none';"
-        )
+        for header_name, header_value in _SECURITY_HEADERS:
+            response.headers[header_name] = header_value
         return response
 
 
 class ContentSizeLimitMiddleware(BaseHTTPMiddleware):
     """
     Guards against denial of service via oversized HTTP request payloads.
+
+    Checks the ``Content-Length`` header before the request body is read.
+    Requests that declare a body larger than *max_body_size* bytes are
+    rejected immediately with HTTP 413.
     """
 
-    def __init__(self, app, max_body_size: int = DEFAULT_MAX_BODY_SIZE):
+    def __init__(self, app, max_body_size: int = DEFAULT_MAX_BODY_SIZE) -> None:
         super().__init__(app)
         self.max_body_size = max_body_size
+        self._max_mb = max_body_size // (1024 * 1024)
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        content_length = request.headers.get("content-length")
-        if content_length:
+        content_length_header = request.headers.get("content-length")
+        if content_length_header:
             try:
-                length_int = int(content_length)
-                if length_int > self.max_body_size:
-                    return JSONResponse(
-                        status_code=413,
-                        content={
-                            "detail": f"Request body too large. Maximum allowed size is {self.max_body_size // (1024 * 1024)}MB."
-                        },
-                    )
+                declared_length = int(content_length_header)
             except ValueError:
-                pass
+                declared_length = 0
+
+            if declared_length > self.max_body_size:
+                return JSONResponse(
+                    status_code=HTTP_413_CONTENT_TOO_LARGE,
+                    content={
+                        "detail": (
+                            f"Request body too large. "
+                            f"Maximum allowed size is {self._max_mb}MB."
+                        )
+                    },
+                )
 
         return await call_next(request)

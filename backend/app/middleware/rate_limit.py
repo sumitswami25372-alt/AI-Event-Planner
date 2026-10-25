@@ -1,43 +1,52 @@
 """
 Thread-safe sliding-window rate limiting middleware for CelebrAI.
 
-Protects backend APIs from abuse, credential stuffing, and expensive AI generation token exhaustion.
-Returns HTTP 429 Too Many Requests with standard Retry-After and X-RateLimit-* headers.
+Protects backend APIs from abuse, credential stuffing, and expensive AI
+generation token exhaustion.
+
+Returns HTTP 429 Too Many Requests with standard Retry-After and
+X-RateLimit-* headers when the limit is exceeded.
+
+Algorithmic note: timestamps are stored in a ``collections.deque`` so that
+pruning expired entries from the left end is O(1) per removal, compared to
+the O(n) cost of list.pop(0).
 """
 from __future__ import annotations
 
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from threading import Lock
-from typing import Dict, List, Tuple
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.status import HTTP_429_TOO_MANY_REQUESTS
 
 
 class InMemoryRateLimiter:
-    """Sliding-window request counter per client IP address."""
+    """Sliding-window request counter per client IP address using a deque."""
 
-    def __init__(self, window_seconds: int = 60):
+    def __init__(self, window_seconds: int = 60) -> None:
         self.window_seconds = window_seconds
-        self._requests: Dict[str, List[float]] = defaultdict(list)
+        # Deque gives O(1) popleft for pruning expired timestamps
+        self._requests: dict[str, deque[float]] = defaultdict(deque)
         self._lock = Lock()
 
-    def is_allowed(self, client_ip: str, max_requests: int) -> Tuple[bool, int, int]:
+    def is_allowed(self, client_ip: str, max_requests: int) -> tuple[bool, int, int]:
         """
-        Check if request is permitted.
+        Check if request is permitted under the sliding window.
+
         Returns:
-            (allowed: bool, remaining: int, retry_after: int)
+            ``(allowed, remaining, retry_after_seconds)``
         """
-        now = time.time()
+        now = time.monotonic()
         cutoff = now - self.window_seconds
 
         with self._lock:
             timestamps = self._requests[client_ip]
-            # Prune timestamps outside current window
+            # Prune timestamps outside the current window (O(1) per removal)
             while timestamps and timestamps[0] < cutoff:
-                timestamps.pop(0)
+                timestamps.popleft()
 
             count = len(timestamps)
             if count >= max_requests:
@@ -50,8 +59,8 @@ class InMemoryRateLimiter:
             return True, remaining, 0
 
     def cleanup(self) -> None:
-        """Periodically clean empty keys to prevent unbounded memory growth."""
-        now = time.time()
+        """Remove stale keys to prevent unbounded memory growth."""
+        now = time.monotonic()
         cutoff = now - self.window_seconds
         with self._lock:
             empty_keys = [
@@ -65,10 +74,17 @@ class InMemoryRateLimiter:
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Applies sliding-window rate limits:
-    - AI generation endpoints (/generate-plan): 20 req/min
-    - General endpoints: 120 req/min
+    Applies per-IP sliding-window rate limits:
+
+    - AI generation endpoints (``/generate-plan``): ``ai_limit`` req/min
+    - All other endpoints: ``default_limit`` req/min
+
+    Adds ``X-RateLimit-Limit`` and ``X-RateLimit-Remaining`` headers to every
+    response for client-side back-pressure support.
     """
+
+    # Paths that should never be rate-limited
+    _EXEMPT_PATHS: frozenset[str] = frozenset({"/docs", "/redoc", "/openapi.json"})
 
     def __init__(
         self,
@@ -76,35 +92,37 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         default_limit: int = 120,
         ai_limit: int = 25,
         window_seconds: int = 60,
-    ):
+    ) -> None:
         super().__init__(app)
         self.default_limit = default_limit
         self.ai_limit = ai_limit
         self.limiter = InMemoryRateLimiter(window_seconds=window_seconds)
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # Don't rate limit docs or OpenAPI schema
-        if request.url.path in ("/docs", "/redoc", "/openapi.json"):
-            return await call_next(request)
-
-        # Extract client IP (handle proxies if X-Forwarded-For present)
+    @staticmethod
+    def _get_client_ip(request: Request) -> str:
+        """Extract the real client IP, respecting X-Forwarded-For proxies."""
         forwarded_for = request.headers.get("x-forwarded-for")
         if forwarded_for:
-            client_ip = forwarded_for.split(",")[0].strip()
-        elif request.client and request.client.host:
-            client_ip = request.client.host
-        else:
-            client_ip = "127.0.0.1"
+            return forwarded_for.split(",")[0].strip()
+        if request.client and request.client.host:
+            return request.client.host
+        return "127.0.0.1"
 
-        # Determine limit based on endpoint sensitivity
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if request.url.path in self._EXEMPT_PATHS:
+            return await call_next(request)
+
+        client_ip = self._get_client_ip(request)
+
+        # Tighter limit for expensive AI generation endpoints
         is_ai_endpoint = "generate-plan" in request.url.path
         limit = self.ai_limit if is_ai_endpoint else self.default_limit
 
         allowed, remaining, retry_after = self.limiter.is_allowed(client_ip, limit)
 
         if not allowed:
-            response = JSONResponse(
-                status_code=429,
+            response: Response = JSONResponse(
+                status_code=HTTP_429_TOO_MANY_REQUESTS,
                 content={
                     "detail": "Rate limit exceeded. Please wait before making more requests."
                 },

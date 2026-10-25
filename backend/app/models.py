@@ -10,20 +10,22 @@ Performance & Efficiency improvements:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from sqlalchemy import (
-    Column,
-    String,
-    Integer,
-    Float,
-    Boolean,
-    DateTime,
-    ForeignKey,
     JSON,
-    Text,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
     Index,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.orm import relationship
+
 from app.database import Base
 
 
@@ -46,8 +48,8 @@ class Event(Base):
     plan_json = Column(JSON, nullable=True)
     plan_status = Column(String(30), nullable=False, default="pending", index=True)  # pending, completed, failed
     is_demo_plan = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
 
     # Relationships with cascade delete
     expenses = relationship(
@@ -81,7 +83,7 @@ class Expense(Base):
     estimated_amount = Column(Float, nullable=False, default=0.0)
     actual_amount = Column(Float, nullable=False, default=0.0)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
 
     event = relationship("Event", back_populates="expenses")
 
@@ -105,7 +107,7 @@ class ChecklistTask(Base):
     priority = Column(String(20), nullable=False, default="medium", index=True)  # low, medium, high
     due_date = Column(String(50), nullable=True)
     completed = Column(Boolean, nullable=False, default=False, index=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
 
     event = relationship("Event", back_populates="tasks")
 

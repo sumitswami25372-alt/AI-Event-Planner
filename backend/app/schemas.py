@@ -10,11 +10,10 @@ Improvements:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
-
 
 # ==========================================
 # VALIDATOR MIXINS
@@ -68,7 +67,7 @@ class BudgetCategoryItem(BaseModel):
 class ChecklistItem(BaseModel):
     title: str = Field(..., max_length=250)
     category: str = Field(default="General", max_length=100)
-    priority: str = Field(default="medium", max_length=20)
+    priority: Literal["low", "medium", "high"] = "medium"
     days_before_event: int = Field(default=7, ge=0, le=730)
 
 
@@ -85,6 +84,8 @@ class AIPlanSchema(BaseModel):
     checklist: list[ChecklistItem] = Field(default_factory=list, max_length=50)
     recommendations: list[str] = Field(default_factory=list, max_length=20)
 
+    model_config = {"extra": "ignore"}  # tolerate extra keys from Gemini JSON
+
 
 # ==========================================
 # EVENT SCHEMAS
@@ -98,7 +99,7 @@ class EventCreate(BaseModel):
     guest_count: int = Field(..., gt=0, le=100_000)
     budget_amount: float = Field(..., gt=0, le=1_000_000_000)
     currency: str = Field(default="INR", max_length=10)
-    preferences: Optional[dict[str, Any]] = Field(default_factory=dict)
+    preferences: dict[str, Any] | None = Field(default_factory=dict)
 
     @field_validator("name", "category", "location")
     @classmethod
@@ -112,23 +113,23 @@ class EventCreate(BaseModel):
 
 
 class EventUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    category: Optional[str] = Field(default=None, min_length=1, max_length=50)
-    event_date: Optional[str] = Field(default=None, min_length=4, max_length=50)
-    location: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    guest_count: Optional[int] = Field(default=None, gt=0, le=100_000)
-    budget_amount: Optional[float] = Field(default=None, gt=0, le=1_000_000_000)
-    currency: Optional[str] = Field(default=None, max_length=10)
-    preferences: Optional[dict[str, Any]] = None
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    category: str | None = Field(default=None, min_length=1, max_length=50)
+    event_date: str | None = Field(default=None, min_length=4, max_length=50)
+    location: str | None = Field(default=None, min_length=1, max_length=200)
+    guest_count: int | None = Field(default=None, gt=0, le=100_000)
+    budget_amount: float | None = Field(default=None, gt=0, le=1_000_000_000)
+    currency: str | None = Field(default=None, max_length=10)
+    preferences: dict[str, Any] | None = None
 
     @field_validator("name", "category", "location")
     @classmethod
-    def validate_non_whitespace(cls, v: Optional[str]) -> Optional[str]:
+    def validate_non_whitespace(cls, v: str | None) -> str | None:
         return _validate_non_whitespace(v) if v is not None else v
 
     @field_validator("currency")
     @classmethod
-    def validate_currency(cls, v: Optional[str]) -> Optional[str]:
+    def validate_currency(cls, v: str | None) -> str | None:
         return _validate_currency_code(v) if v is not None else v
 
 
@@ -142,8 +143,8 @@ class EventResponse(BaseModel):
     budget_amount: float
     currency: str
     preferences: dict[str, Any]
-    plan_json: Optional[dict[str, Any]] = None
-    plan_status: str
+    plan_json: dict[str, Any] | None = None
+    plan_status: Literal["pending", "completed", "failed"]
     is_demo_plan: bool
     created_at: datetime
     updated_at: datetime
@@ -173,7 +174,7 @@ class ExpenseCreate(BaseModel):
     category: str = Field(..., min_length=1, max_length=100)
     estimated_amount: float = Field(default=0.0, ge=0)
     actual_amount: float = Field(default=0.0, ge=0)
-    notes: Optional[str] = Field(default=None, max_length=1000)
+    notes: str | None = Field(default=None, max_length=1000)
 
     @field_validator("name", "category")
     @classmethod
@@ -182,15 +183,15 @@ class ExpenseCreate(BaseModel):
 
 
 class ExpenseUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    category: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    estimated_amount: Optional[float] = Field(default=None, ge=0)
-    actual_amount: Optional[float] = Field(default=None, ge=0)
-    notes: Optional[str] = Field(default=None, max_length=1000)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    category: str | None = Field(default=None, min_length=1, max_length=100)
+    estimated_amount: float | None = Field(default=None, ge=0)
+    actual_amount: float | None = Field(default=None, ge=0)
+    notes: str | None = Field(default=None, max_length=1000)
 
     @field_validator("name", "category")
     @classmethod
-    def validate_non_whitespace(cls, v: Optional[str]) -> Optional[str]:
+    def validate_non_whitespace(cls, v: str | None) -> str | None:
         return _validate_non_whitespace(v) if v is not None else v
 
 
@@ -201,7 +202,7 @@ class ExpenseResponse(BaseModel):
     category: str
     estimated_amount: float
     actual_amount: float
-    notes: Optional[str]
+    notes: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -224,8 +225,8 @@ class BudgetSummary(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=250)
     category: str = Field(default="General", max_length=100)
-    priority: str = Field(default="medium", max_length=20)
-    due_date: Optional[str] = Field(default=None, max_length=50)
+    priority: Literal["low", "medium", "high"] = "medium"
+    due_date: str | None = Field(default=None, max_length=50)
     completed: bool = Field(default=False)
 
     @field_validator("title")
@@ -243,18 +244,18 @@ class TaskCreate(BaseModel):
 
 
 class TaskUpdate(BaseModel):
-    title: Optional[str] = Field(default=None, min_length=1, max_length=250)
-    category: Optional[str] = Field(default=None, max_length=100)
-    priority: Optional[str] = Field(default=None, max_length=20)
-    due_date: Optional[str] = Field(default=None, max_length=50)
-    completed: Optional[bool] = None
+    title: str | None = Field(default=None, min_length=1, max_length=250)
+    category: str | None = Field(default=None, max_length=100)
+    priority: str | None = Field(default=None, max_length=20)
+    due_date: str | None = Field(default=None, max_length=50)
+    completed: bool | None = None
 
     @field_validator("priority")
     @classmethod
-    def validate_priority(cls, v: Optional[str]) -> Optional[str]:
+    def validate_priority(cls, v: str | None) -> str | None:
         if v is not None:
             p = v.strip().lower()
-            if p not in ("low", "medium", "high"):
+            if p not in {"low", "medium", "high"}:
                 raise ValueError("Priority must be 'low', 'medium', or 'high'")
             return p
         return v
@@ -265,8 +266,8 @@ class TaskResponse(BaseModel):
     event_id: str
     title: str
     category: str
-    priority: str
-    due_date: Optional[str]
+    priority: Literal["low", "medium", "high"]
+    due_date: str | None
     completed: bool
     created_at: datetime
 
@@ -288,7 +289,7 @@ class ConfigResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     database: str
     environment: str
 

@@ -6,7 +6,7 @@
  * - Auto-dismiss timeout ref is stored and cleared on manual removeToast to
  *   prevent the delayed setState from running on an already-removed toast
  */
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export interface ToastMessage {
   id: string;
@@ -20,6 +20,14 @@ export function useToast() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   // Map of toast id -> timeout handle so we can cancel on early removal
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Clean up all pending timers on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      timers.current.forEach((handle) => clearTimeout(handle));
+      timers.current.clear();
+    };
+  }, []);
 
   const removeToast = useCallback((id: string) => {
     const handle = timers.current.get(id);
