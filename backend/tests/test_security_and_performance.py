@@ -1,7 +1,6 @@
 """
 Unit and integration tests for CelebrAI security, rate limiting, and performance middleware.
 """
-import pytest
 from app.middleware.rate_limit import InMemoryRateLimiter
 
 

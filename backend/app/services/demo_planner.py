@@ -236,8 +236,8 @@ def generate_demo_plan(event_data: Dict[str, Any]) -> AIPlanSchema:
 
     recommendations: List[str] = [
         f"Keep a 3-5% emergency buffer ({round(budget * 0.04, 2)} {currency}) for unexpected overtime or guest additions.",
-        f"Establish a firm dietary count cutoff 5 days prior to prevent excess kitchen wastage.",
-        f"Ensure venue power lines can support simultaneous audio amplifiers, catering warmers, and lighting setups.",
+        "Establish a firm dietary count cutoff 5 days prior to prevent excess kitchen wastage.",
+        "Ensure venue power lines can support simultaneous audio amplifiers, catering warmers, and lighting setups.",
         "Designate one trustworthy friend or assistant as the day-of vendor point person so the host remains relaxed."
     ]
 
